@@ -1,37 +1,29 @@
 const clipboardService = require("../services/clipboardService");
 
-async function listEntries(req, res, next) {
+async function createClip(req, res, next) {
     try {
-        const { email } = req.query;
-        const entries = await clipboardService.listEntries(email);
-        res.status(200).json({ entries });
+        const { content } = req.body;
+        // user might be undefined if guest
+        const userId = req.user ? req.user.id : null;
+
+        const clip = await clipboardService.createClip({ content, userId });
+        res.status(201).json({ clip });
     } catch (error) {
         next(error);
     }
 }
 
-async function createEntry(req, res, next) {
+async function getClip(req, res, next) {
     try {
-        const entry = await clipboardService.createEntry(req.body);
-        res.status(201).json({ entry });
-    } catch (error) {
-        next(error);
-    }
-}
-
-async function deleteEntry(req, res, next) {
-    try {
-        const { id } = req.params;
-        const { email } = req.query;
-        await clipboardService.deleteEntry({ id, email });
-        res.status(204).send();
+        const { code } = req.params;
+        const clip = await clipboardService.getClipByCode(code);
+        res.status(200).json({ clip });
     } catch (error) {
         next(error);
     }
 }
 
 module.exports = {
-    listEntries,
-    createEntry,
-    deleteEntry,
+    createClip,
+    getClip,
 };

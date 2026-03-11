@@ -1,10 +1,11 @@
 const express = require("express");
 const clipboardController = require("../controllers/clipboardController");
+const { authenticateUser } = require("../middleware/authMiddleware");
 
 const router = express.Router();
 
-router.get("/", clipboardController.listEntries);
-router.post("/", clipboardController.createEntry);
-router.delete("/:id", clipboardController.deleteEntry);
+// Middleware to parse auth token if it exists (but not strictly require it)
+router.post("/", authenticateUser, clipboardController.createClip);
+router.get("/:code", clipboardController.getClip);
 
 module.exports = router;

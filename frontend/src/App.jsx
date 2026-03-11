@@ -38,36 +38,45 @@ function AuthProvider({ children }) {
     }
   }, []);
 
-  const login = (email, password) => {
-    const accounts = JSON.parse(localStorage.getItem("clipper_accounts") || "[]");
-    const found = accounts.find(
-      (account) => account.email === email && account.password === password
-    );
-    if (!found) {
-      return { ok: false, message: "Invalid email or password." };
+  const login = async (email, password) => {
+    try {
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "Failed to login");
+      localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(data.user));
+      localStorage.setItem("clipper_token", data.token);
+      setUser(data.user);
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, message: err.message };
     }
-    const session = { name: found.name, email: found.email };
-    localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(session));
-    setUser(session);
-    return { ok: true };
   };
 
-  const signup = (name, email, password) => {
-    const accounts = JSON.parse(localStorage.getItem("clipper_accounts") || "[]");
-    const exists = accounts.some((account) => account.email === email);
-    if (exists) {
-      return { ok: false, message: "Account already exists for this email." };
+  const signup = async (name, email, password) => {
+    try {
+      const res = await fetch("/api/auth/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, email, password }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "Failed to register");
+      localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(data.user));
+      localStorage.setItem("clipper_token", data.token);
+      setUser(data.user);
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, message: err.message };
     }
-    const next = [...accounts, { name, email, password }];
-    localStorage.setItem("clipper_accounts", JSON.stringify(next));
-    const session = { name, email };
-    localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(session));
-    setUser(session);
-    return { ok: true };
   };
 
   const logout = () => {
     localStorage.removeItem(AUTH_STORAGE_KEY);
+    localStorage.removeItem("clipper_token");
     setUser(null);
   };
 
@@ -370,16 +379,16 @@ function AuthPage({ mode }) {
     setForm((prev) => ({ ...prev, [key]: value }));
   };
 
-  const submit = (event) => {
+  const submit = async (event) => {
     event.preventDefault();
     if (!form.email || !form.password || (isSignup && !form.name)) {
       showToast("error", "All required fields are needed.");
       return;
     }
 
-    const result = isSignup
+    const result = await (isSignup
       ? signup(form.name, form.email, form.password)
-      : login(form.email, form.password);
+      : login(form.email, form.password));
 
     if (!result.ok) {
       showToast("error", result.message);

@@ -1,80 +1,66 @@
-const store = require("./storeService");
+const Clip = require("../models/Clip");
 const { createHttpError } = require("../utils/helpers");
 
-async function listEntries(email) {
-    if (!email) {
-        throw createHttpError(400, "Email query parameter is required.");
+async function generateUniqueCode() {
+    let code;
+    let isUnique = false;
+
+    while (!isUnique) {
+        code = Math.floor(1000 + Math.random() * 9000).toString(); // 4 digits
+        const existing = await Clip.findOne({ where: { code } });
+        if (!existing) {
+            isUnique = true;
+        }
     }
 
-    const state = await store.readStore();
-    const normalizedEmail = email.trim().toLowerCase();
-
-    return state.entries
-        .filter((entry) => entry.email === normalizedEmail)
-        .sort((left, right) => new Date(right.createdAt) - new Date(left.createdAt));
+    return code;
 }
 
-async function createEntry({ email, text = "", files = [] }) {
-    if (!email) {
-        throw createHttpError(400, "Email is required.");
+async function createClip({ content, userId }) {
+    if (!content || !content.trim()) {
+        throw createHttpError(400, "Content is required.");
     }
 
-    const normalizedEmail = email.trim().toLowerCase();
-    const trimmedText = text.trim();
-    const normalizedFiles = Array.isArray(files)
-        ? files.slice(0, 5).map((file) => ({
-              name: String(file.name || "").trim(),
-              size: Number(file.size) || 0,
-          }))
-        : [];
+    const code = await generateUniqueCode();
 
-    if (!trimmedText && normalizedFiles.length === 0) {
-        throw createHttpError(400, "Entry text or files are required.");
+    // If not userId, set expiresAt to 24h from now
+    let expiresAt = null;
+    if (!userId) {
+        const now = new Date();
+        now.setHours(now.getHours() + 24);
+        expiresAt = now;
     }
 
-    const state = await store.readStore();
-    const hasUser = state.users.some((user) => user.email === normalizedEmail);
+    const clip = await Clip.create({
+        code,
+        content: content.trim(),
+        userId,
+        expiresAt,
+    });
 
-    if (!hasUser) {
-        throw createHttpError(404, "User not found.");
-    }
-
-    const entry = {
-        id: `entry_${Date.now()}`,
-        email: normalizedEmail,
-        text: trimmedText,
-        files: normalizedFiles.filter((file) => file.name),
-        createdAt: new Date().toISOString(),
+    return {
+        id: clip.id,
+        code: clip.code,
+        content: clip.content,
+        expiresAt: clip.expiresAt,
     };
-
-    state.entries = [entry, ...state.entries].slice(0, 100);
-    await store.writeStore(state);
-
-    return entry;
 }
 
-async function deleteEntry({ id, email }) {
-    if (!email) {
-        throw createHttpError(400, "Email query parameter is required.");
+async function getClipByCode(code) {
+    const clip = await Clip.findOne({ where: { code } });
+    if (!clip) {
+        throw createHttpError(404, "Clip not found or expired.");
     }
 
-    const state = await store.readStore();
-    const normalizedEmail = email.trim().toLowerCase();
-    const previousLength = state.entries.length;
-
-    state.entries = state.entries.filter(
-        (entry) => !(entry.id === id && entry.email === normalizedEmail)
-    );
-
-    if (state.entries.length === previousLength) {
-        throw createHttpError(404, "Clipboard entry not found.");
-    }
-
-    await store.writeStore(state);
+    return {
+        id: clip.id,
+        code: clip.code,
+        content: clip.content,
+        createdAt: clip.createdAt,
+    };
 }
 
 module.exports = {
-    listEntries,
-    createEntry,
-    deleteEntry,
+    createClip,
+    getClipByCode,
 };

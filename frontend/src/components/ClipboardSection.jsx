@@ -3,6 +3,7 @@ import { useClipboard } from "../context/ClipboardContext";
 import { useToast } from "../context/ToastContext";
 
 function formatWhen(dateString) {
+    if (!dateString) return '';
     const diffSeconds = Math.floor((Date.now() - new Date(dateString).getTime()) / 1000);
     if (diffSeconds < 60) return "just now";
     if (diffSeconds < 3600) return `${Math.floor(diffSeconds / 60)}m ago`;
@@ -11,37 +12,71 @@ function formatWhen(dateString) {
 }
 
 export function ClipboardSection() {
+    // We can keep useClipboard to store historical uploaded entries locally
     const { entries, addEntry } = useClipboard();
     const { showToast } = useToast();
+
     const [text, setText] = useState("");
-    const [files, setFiles] = useState([]);
-    const [dragging, setDragging] = useState(false);
+    const [generatedCode, setGeneratedCode] = useState("");
+    const [retrievalCode, setRetrievalCode] = useState("");
+    const [retrievedClip, setRetrievedClip] = useState(null);
+    const [loading, setLoading] = useState(false);
 
-    const setIncomingFiles = (incoming) => {
-        const next = Array.from(incoming).slice(0, 5);
-        setFiles(next);
-        if (next.length > 0) {
-            showToast("success", `${next.length} file(s) added.`);
-        }
-    };
-
-    const handleSubmit = () => {
-        if (!text.trim() && files.length === 0) {
-            showToast("error", "Add text or files first.");
+    const handleUpload = async () => {
+        if (!text.trim()) {
+            showToast("error", "Add text first.");
             return;
         }
 
-        const entry = {
-            id: Date.now(),
-            text: text.trim(),
-            files: files.map((file) => ({ name: file.name, size: file.size })),
-            createdAt: new Date().toISOString(),
-        };
+        setLoading(true);
+        try {
+            const token = localStorage.getItem("clipper_token");
+            const headers = { "Content-Type": "application/json" };
+            if (token) {
+                headers["Authorization"] = `Bearer ${token}`;
+            }
 
-        addEntry(entry);
-        setText("");
-        setFiles([]);
-        showToast("success", "Clipboard item saved.");
+            const res = await fetch("/api/clips", {
+                method: "POST",
+                headers,
+                body: JSON.stringify({ content: text.trim() }),
+            });
+
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.message || "Failed to create clip");
+
+            showToast("success", "Clip created!");
+            setGeneratedCode(data.clip.code);
+            addEntry(data.clip);
+            setText("");
+        } catch (err) {
+            showToast("error", err.message);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleRetrieve = async () => {
+        if (!retrievalCode.trim() || retrievalCode.length !== 4) {
+            showToast("error", "Enter a valid 4-digit code.");
+            return;
+        }
+
+        setLoading(true);
+        try {
+            const res = await fetch(`/api/clips/${retrievalCode.trim()}`);
+            const data = await res.json();
+
+            if (!res.ok) throw new Error(data.message || "Clip not found");
+
+            setRetrievedClip(data.clip);
+            showToast("success", "Clip retrieved!");
+        } catch (err) {
+            showToast("error", err.message);
+            setRetrievedClip(null);
+        } finally {
+            setLoading(false);
+        }
     };
 
     return (
@@ -49,64 +84,77 @@ export function ClipboardSection() {
             <h2>
                 Your <span>Clipboard</span>
             </h2>
-            <p className="section-sub">Paste text, drop files, or upload images below.</p>
-            <div className="composer">
-                <textarea
-                    value={text}
-                    onChange={(event) => setText(event.target.value)}
-                    placeholder="Paste or type anything here..."
-                />
+            <p className="section-sub">Paste text to share, or retrieve an existing clip using a 4-digit code.</p>
+
+            <div style={{ display: "flex", gap: "2rem", flexWrap: "wrap", marginBottom: "2rem" }}>
+                {/* Upload Section */}
+                <div style={{ flex: "1 1 300px" }}>
+                    <h3>Create Clip</h3>
+                    <div className="composer">
+                        <textarea
+                            value={text}
+                            onChange={(event) => setText(event.target.value)}
+                            placeholder="Paste or type anything here to share..."
+                        />
+                    </div>
+                    {generatedCode && (
+                        <div style={{ marginTop: "1rem", padding: "1rem", backgroundColor: "rgba(0,0,0,0.05)", borderRadius: "8px" }}>
+                            <strong>Success! Your share code is: </strong>
+                            <span style={{ fontSize: "1.5rem", fontWeight: "bold", color: "var(--primary)" }}>{generatedCode}</span>
+                        </div>
+                    )}
+                    <button
+                        className="btn btn-primary send-btn"
+                        onClick={handleUpload}
+                        disabled={loading}
+                    >
+                        {loading ? "Saving..." : "Create Share Code"}
+                    </button>
+                </div>
+
+                {/* Retrieve Section */}
+                <div style={{ flex: "1 1 300px" }}>
+                    <h3>Retrieve Clip</h3>
+                    <div className="composer" style={{ minHeight: "auto", padding: "1rem" }}>
+                        <input
+                            type="text"
+                            maxLength={4}
+                            value={retrievalCode}
+                            onChange={(e) => setRetrievalCode(e.target.value)}
+                            placeholder="Enter 4-digit code"
+                            style={{ padding: "0.5rem", fontSize: "1.2rem", width: "100%", letterSpacing: "2px", textAlign: "center" }}
+                        />
+                    </div>
+                    <button
+                        className="btn btn-outline send-btn"
+                        onClick={handleRetrieve}
+                        disabled={loading}
+                        style={{ marginTop: "1rem", width: "100%" }}
+                    >
+                        {loading ? "Searching..." : "Retrieve Clip"}
+                    </button>
+
+                    {retrievedClip && (
+                        <div style={{ marginTop: "1.5rem", padding: "1rem", backgroundColor: "rgba(0,0,0,0.05)", borderRadius: "8px" }}>
+                            <h4>Retrieved Content ({formatWhen(retrievedClip.createdAt)}):</h4>
+                            <p style={{ whiteSpace: "pre-wrap", marginTop: "0.5rem" }}>{retrievedClip.content}</p>
+                        </div>
+                    )}
+                </div>
             </div>
 
-            <label
-                className={`dropzone ${dragging ? "dragging" : ""}`}
-                onDragOver={(event) => {
-                    event.preventDefault();
-                    setDragging(true);
-                }}
-                onDragLeave={() => setDragging(false)}
-                onDrop={(event) => {
-                    event.preventDefault();
-                    setDragging(false);
-                    setIncomingFiles(event.dataTransfer.files);
-                }}
-            >
-                <input
-                    type="file"
-                    multiple
-                    onChange={(event) => setIncomingFiles(event.target.files)}
-                />
-                <span>Drop images or files here, or browse</span>
-            </label>
-
-            {files.length ? (
-                <div className="file-preview">
-                    {files.map((file) => (
-                        <div key={`${file.name}-${file.lastModified}`} className="file-chip">
-                            {file.name}
-                        </div>
-                    ))}
-                </div>
-            ) : null}
-
-            <button className="btn btn-primary send-btn" onClick={handleSubmit}>
-                Send
-            </button>
-
+            <h3 style={{ marginTop: "3rem", marginBottom: "1rem" }}>Your Recent Clips</h3>
             <div className="entry-list">
                 {entries.length === 0 ? (
                     <div className="empty-state">No clipboard items yet.</div>
                 ) : (
                     entries.map((entry) => (
                         <article key={entry.id} className="entry">
-                            <p>{entry.text || "File upload"}</p>
-                            {entry.files.length ? (
-                                <small>
-                                    {entry.files.length} file(s):{" "}
-                                    {entry.files.map((item) => item.name).join(", ")}
-                                </small>
-                            ) : null}
-                            <time>{formatWhen(entry.createdAt)}</time>
+                            <p style={{ display: "flex", justifyContent: "space-between" }}>
+                                <span>{entry.content}</span>
+                                <strong style={{ color: "var(--primary)" }}>Code: {entry.code}</strong>
+                            </p>
+                            <time>{formatWhen(entry.createdAt || entry.expiresAt)}</time>
                         </article>
                     ))
                 )}
