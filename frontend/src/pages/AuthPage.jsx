@@ -14,16 +14,16 @@ export function AuthPage({ mode }) {
         setForm((prev) => ({ ...prev, [key]: value }));
     };
 
-    const submit = (event) => {
+    const submit = async (event) => {
         event.preventDefault();
         if (!form.email || !form.password || (isSignup && !form.name)) {
             showToast("error", "All required fields are needed.");
             return;
         }
 
-        const result = isSignup
+        const result = await (isSignup
             ? signup(form.name, form.email, form.password)
-            : login(form.email, form.password);
+            : login(form.email, form.password));
 
         if (!result.ok) {
             showToast("error", result.message);
